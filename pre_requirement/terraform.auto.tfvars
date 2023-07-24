@@ -13,8 +13,8 @@
 # limitations under the License.
 
 
-project       = "example"
-creator_email = "example@example.co"
-owner_email   = "example@example.co"
-namespace     = "example"
-region        = "eu-west-1"
+project       = "xc3-project-bimba"
+creator_email = "btbyambadorj@gmail.com"
+owner_email   = "btbyambadorj@gmail.com"
+namespace     = "btbyambadorj@gmail.com"
+region        = "ap-southeast-2"
