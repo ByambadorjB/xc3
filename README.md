@@ -1,5 +1,6 @@
 <br>
 
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Docs](https://img.shields.io/badge/docs-latest-blue)](https://github.com/XgridInc/xc3)
 [![Slack](https://slackin.px.dev/badge.svg)](https://app.slack.com/client/T055VHJ0087/C0571UK3SBG)
 [![Open AI Reviewer](https://github.com/XgridInc/xc3/actions/workflows/openai-pr-reviewer.yml/badge.svg)](https://github.com/XgridInc/xc3/actions/workflows/openai-pr-reviewer.yml)
@@ -27,9 +28,45 @@ Check the below video for a quick demo of XC3.
 
 - Provides cost optimization recommendation workflow without exposing your private information
 
-# XC3 Architecture Diagram
+# XC3 System Architecture Visual Overview
 
-![XC3-architecture](https://github.com/XgridInc/xc3/assets/122358742/1f9b1c1e-92ca-4b2e-af17-8465214f25e9)
+<b>` XC3 has two architecture diagrams, representing its 'Dev' and 'Prod' environments.`</b>
+
+# XC3 Dev Architecture
+
+![XC3 Dev Architecture](https://github.com/XgridInc/xc3/assets/138758061/8bd4a8f3-ee54-44ee-a152-865d7ce6bb2b)
+
+`This diagram illustrates the architecture of the "dev" environment for XC3. Below are the key components:`
+
+- EC2 Instance (Public Subnet): Acts as the entry point for the "dev" environment.
+- Lambda Functions (Private Subnet): Executes serverless tasks within a secure private subnet.
+- SQS (Simple Queue Service): Provides queuing capability for asynchronous tasks.
+- SES (Simple Email Service): Handles email communications.
+- Cost Explorer: Assists in analyzing and managing costs.
+- Scheduled CloudWatch Events: Enables automated event triggering.
+- S3 (Simple Storage Service): Used for storing state files and other data.
+- Additional services (Push Gateway, Grafana, Prometheus, Cloud Custodian) run on the EC2 instance to monitor and manage the environment.
+
+Access to the "dev" environment is primarily through the EC2 instance's IP address. SSH is available for administrative purposes.
+
+# XC3 Prod Architecture Diagram
+
+![XC3 Prod Architecture](https://github.com/XgridInc/xc3/assets/122358742/1f9b1c1e-92ca-4b2e-af17-8465214f25e9)
+
+`This diagram illustrates the architecture of the "prod" environment for XC3. It includes the following components:`
+
+- Cognito: Manages user authentication and authorization.
+- Route 53: Provides DNS routing services for efficient access.
+- Elastic Load Balancer: Distributes incoming traffic to ensure high availability.
+- EC2 Instance and Lambda Functions (Private Subnet): Similar to the "dev" environment but with additional security and scalability measures.
+- SQS (Simple Queue Service): Handles queuing tasks.
+- SES (Simple Email Service): Manages email communications.
+- Cost Explorer: Assists in analyzing and managing costs.
+- Scheduled CloudWatch Events: Enables automated event triggering.
+- S3 (Simple Storage Service): Used for storing state files and other data.
+- EIC Endpoint (Endpoint Isolation and Control): Enhances security and isolation within the "prod" environment.
+
+Access to the "prod" environment is facilitated through a DNS URL, thanks to Route 53. This architecture prioritizes security, scalability, and high availability to support the production environment for XC3.
 
 # To start using XC3
 
@@ -57,10 +94,9 @@ Check the below video for a quick demo of XC3.
 
 3. VPC needs to be present in the master account where you want to set up XC3
 
+4. To store terraform state and to maintain lock, S3 bucket and dynamodb should be available in master account.
 
-4. To store terraform state and maintaing lock, S3 bucket and dynamodb should be available in master account.
-
-5. ACM certificate should be available. It will be associated with loadbalanacer and domain.
+5. ACM certificate should be available. It will be associated with loadbalancer and domain.
 
 6. The user has to **enable CostExplorer** by following the below link.
 
@@ -78,7 +114,8 @@ Check the below video for a quick demo of XC3.
     git clone https://github.com/XgridInc/xc3.git
     ```
 
-2. Go to the directory xc3/ and configure the input.sh file and run the below command
+2.  Go to the directory xc3/ and configure the input.sh file and run the below command
+
     ```
     cd xc3/
 
@@ -102,23 +139,26 @@ Check the below video for a quick demo of XC3.
     bash init.sh
     ```
 
-3. Wait for few minutes before proceeding further for the application to come online.
+3.  Wait for few minutes before proceeding further for the application to come online.
     Verify the readiness of the metrics system. Load the Grafana URL in a browser. Live Grafana UI ensures the system is ready to accept and visualize metrics.
-
 
     > Verify the readiness of metrics system by accessing Grafana UI: https://xc3.xxx.com/login
 
     > Verify the readiness of metrics system by accessing Grafana UI: `loadbalancer-dns`. If Hosted zone ID is not provided in `input.tfvars`.
 
+4.  Now setup is complete. If domain is provided in the input.sh then users needs to be added in Cognito pool with requested role (admin/editor/viewer) in respective cognito group. User get random username/password from cognito then you can set password on domain by sign in using random credentials.
 
+5.  SSH into the private instance using EIC Endpoint to check if everything is working fine. Here replace [instance-id] needs to be replaced with ID
 
-4. Now setup is complete. If domain is provided in the input.sh then users needs to be added in Cognito pool with requested role (admin/editor/viewer) in respective cognito group. User get random username/password from cognito then you can set password on domain by sign in using random credentials.
+    `ssh ubuntu@[instance-id] -i keypair.pem -o ProxyCommand='aws ec2-instance-connect open-tunnel --instance-id %h'`
 
-5. SSH into the private instance using EIC Endpoint to check if eveything is working fine. Here replace [instance-id] needs to be replaced with ID
+6.  Go to AWS Systems Manager, select Parameter Store, and create a new parameter named "/{namespace}/region_names". Set the value as a dictionary with region IDs as keys and region names as values.
 
-    ``` ssh ubuntu@[instance-id] -i keypair.pem -o ProxyCommand='aws ec2-instance-connect open-tunnel --instance-id %h' ```
+7.  SSH into the private instance using EIC Endpoint to check if everything is working fine. Here replace [instance-id] needs to be replaced with ID
 
-6. Now XC3 will run at 05:00AM UTC every day to generate data and populate Grafana. Few lambdas (Total Account Cost and Project spend) will run twice in a month.
+    `ssh ubuntu@[instance-id] -i keypair.pem -o ProxyCommand='aws ec2-instance-connect open-tunnel --instance-id %h'`
+
+8.  Now XC3 will run at 05:00AM UTC every day to generate data and populate Grafana. Few lambdas (Total Account Cost and Project spend) will run twice in a month.
 
         Note :
             1. If data is not available in Grafana UI then follow the troubleshooting guide at the last section of this page.
@@ -138,6 +178,8 @@ case 1: If data is not showing into Grafana UI, there could be several reasons a
 
 3. XC3 Budget Detail/IAM Role/User Workflow lambda may have failed to execute , please check Cloudwatch logs to address the issue.
 
+4. Check if XC3's most expensive services data is missing, and if so, verify the existence of the corresponding SSM parameter in AWS Systems Manager. To address this issue, ensure you follow step 5 of the deployment instructions.
+
 case 2: user not able to change/update/modify default dashboards in Grafana UI
 
 1.  You can't change/update default dashboards.
@@ -145,7 +187,7 @@ case 2: user not able to change/update/modify default dashboards in Grafana UI
 
 <br clear="all">
 
-## Contibutor
+## Contributor Guide
 
 XC3 is a community-driven project; we welcome your contribution! For code contributions, please read our [contribution guide](./CONTRIBUTING.md).
 

@@ -113,7 +113,7 @@ resource "aws_instance" "this" {
   instance_type               = var.instance_type
   associate_public_ip_address = var.env == "prod" ? false : true
   key_name                    = data.aws_key_pair.key_pair.key_name
-  subnet_id                   = var.public_subnet_ids[0]
+  subnet_id                   = var.env == "prod" ? var.private_subnet_id[0] : var.public_subnet_ids[0] #check environment and then move instance to publi or private subnet.
   vpc_security_group_ids      = [var.security_group_ids.private_security_group_id]
   iam_instance_profile        = aws_iam_instance_profile.this.name
   user_data = templatefile("${path.module}/startup-script.sh.tpl", {
@@ -173,6 +173,13 @@ resource "aws_s3_bucket" "this" {
   tags = merge(local.tags, tomap({ "Name" = "${var.namespace}-Bucket" }))
 }
 
+resource "aws_s3_bucket_versioning" "this" {
+  bucket = aws_s3_bucket.this.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
 # Uploading Cloud Custodian Policies and lambda layers in S3 bucket
 # tflint-ignore: terraform_required_providers
 resource "terraform_data" "upload_files_on_s3" {
@@ -188,14 +195,10 @@ resource "terraform_data" "upload_files_on_s3" {
 }
 
 # tflint-ignore: terraform_required_providers
-resource "terraform_data" "eicendpoint" {
+resource "aws_ec2_instance_connect_endpoint" "eicendpoint" {
   count = var.env == "prod" ? 1 : 0
-  triggers_replace = [
-    aws_instance.this.id
-  ]
-  provisioner "local-exec" {
-    command = "aws ec2 create-instance-connect-endpoint --subnet-id ${var.private_subnet_id[0]} --security-group-id ${var.security_group_ids.private_security_group_id}"
-  }
+  security_group_ids = [var.security_group_ids.private_security_group_id]
+  subnet_id = var.private_subnet_id[0]
 }
 
 # Configuring prometheus layer for lambda functions
@@ -209,4 +212,93 @@ resource "aws_lambda_layer_version" "lambda_layer_prometheus" {
   depends_on = [
     terraform_data.upload_files_on_s3
   ]
+}
+
+## Cloudwatch Alarms
+# tflint-ignore: terraform_required_providers
+resource "aws_cloudwatch_metric_alarm" "cpu_utilization_queue_alarm" { 
+  alarm_name          = "${var.namespace}-xc3-cpu-usage-alarm"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods = "1"
+  metric_name        = "CPUUtilization"
+  namespace          = "AWS/EC2"
+  period             = "300"
+  statistic          = "Average"
+  threshold          = "80"
+  alarm_description = "This metric checks for high CPU usage"
+  alarm_actions     = [aws_sns_topic.this.arn]
+  dimensions = {
+    InstanceId = aws_instance.this.id
+  }
+
+   tags = merge(local.tags, tomap({ "Name" = "${var.namespace}-cpu_usage_alarm" }))
+}
+
+resource "aws_cloudwatch_metric_alarm" "sqs_queue_alarm" {
+  alarm_name          = "${var.namespace}-xc3-sqs-queue-alarm"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods = 1
+  metric_name        = "ApproximateAgeOfOldestMessage"
+  namespace          = "AWS/SQS"
+  period             = 300
+  statistic          = "Average"
+  threshold          = 10 
+  alarm_description  = "Alarm for SQS queue visibility threshold"
+  alarm_actions      = [aws_sns_topic.this.arn]
+
+  dimensions = {
+    QueueName = aws_sqs_queue.this.name
+  }
+
+   tags = merge(local.tags, tomap({ "Name" = "${var.namespace}-cpu_usage_alarm" }))
+}
+
+## Creation of an WAFv2
+# tflint-ignore: terraform_required_providers
+resource "aws_wafv2_web_acl" "this" {
+  name  = "${var.namespace}_xc3_web_acl"
+  scope = "REGIONAL"
+
+  default_action {
+    allow {}
+  }
+
+  rule {
+    name     = "RateLimit"
+    priority = 1
+
+    action {
+      block {}
+    }
+
+    statement {
+
+      rate_based_statement {
+        aggregate_key_type = "IP"
+        limit              = 500
+      }
+    }
+
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      metric_name                = "RateLimit"
+      sampled_requests_enabled   = true
+    }
+  }
+
+  visibility_config {
+    cloudwatch_metrics_enabled = false
+    metric_name                = "${var.namespace}_xc3_web_acl"
+    sampled_requests_enabled   = false
+  }
+
+     tags = merge(local.tags, tomap({ "Name" = "${var.namespace}-web_acl_waf" }))
+}
+
+## association code of webacl
+# tflint-ignore: terraform_required_providers
+resource "aws_wafv2_web_acl_association" "web_acl_association_with_lb" {
+  count        = var.env == "prod" && var.domain_name != "" ? 1 : 0
+  resource_arn = aws_lb.this[0].arn
+  web_acl_arn  = aws_wafv2_web_acl.this.arn
 }
